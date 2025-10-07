@@ -19,7 +19,9 @@ class LoginScreenState extends State<LoginScreen> {
 
   void login() async {
     if (_formKey.currentState!.validate()) {
-      setState(() => loading = true);
+      setState(() {
+        loading = true;
+      });
       try {
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: emailController.text.trim(),
@@ -42,7 +44,9 @@ class LoginScreenState extends State<LoginScreen> {
         }
       }
       if (mounted) {
-        setState(() => loading = false);
+        setState(() {
+          loading = false;
+        });
       }
     }
   }
@@ -63,9 +67,12 @@ class LoginScreenState extends State<LoginScreen> {
               keyboardType: TextInputType.emailAddress,
               decoration: InputDecoration(labelText: 'Email'),
               validator: (value) {
-                if (value == null || value.isEmpty) return 'Enter email';
-                if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value))
+                if (value == null || value.isEmpty) {
+                  return 'Enter email';
+                }
+                if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
                   return 'Enter valid email';
+                }
                 return null;
               },
             ),

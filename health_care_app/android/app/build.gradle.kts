@@ -9,13 +9,17 @@ plugins {
 
 android {
     namespace = "com.example.health_care_app"
-    compileSdk = flutter.compileSdkVersion
+    // The flutter object provides defaults, but some plugins require a higher compileSdk.
+    // Bump to 36 because fluttertoast (and possibly other plugins) compile against SDK 36.
+    compileSdk = 36
     // Use a specific NDK version required by dependencies
     ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable core library desugaring for libraries that require newer Java APIs
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -30,7 +34,8 @@ android {
         // cloud_firestore requires minSdk 23; ensure project uses at least that.
         // If you need to support older devices, choose a cloud_firestore version that supports lower minSdk.
         minSdk = 23
-        targetSdk = flutter.targetSdkVersion
+    // Keep targetSdk consistent with compileSdk where possible.
+    targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -54,4 +59,7 @@ dependencies {
 
     // Example Firebase dependency (BoM manages versions)
     implementation("com.google.firebase:firebase-analytics")
+    // Required for core library desugaring used by some plugins (e.g. flutter_local_notifications)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
+
