@@ -29,6 +29,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _initializing = true;
   Object? _initError;
+  bool _firebaseReady = false;
 
   @override
   void initState() {
@@ -56,14 +57,38 @@ class _MyAppState extends State<MyApp> {
 
       Future.microtask(() async {
         try {
-          await NotificationService.instance.initialize();
+          // Defer heavy plugin init until after the first frame so we
+          // don't block the UI. Using addPostFrameCallback below ensures
+          // the app can render its first frame quickly.
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            try {
+              await NotificationService.instance.initialize();
+            } catch (_) {
+              // ignore initialization errors — service has fallbacks
+            }
+          });
         } catch (_) {
           // ignore
         }
       });
 
-      // Initialize Firebase (we await this because auth depends on it).
-      await Firebase.initializeApp();
+      // Initialize Firebase in background so we don't block the first frame.
+      // We'll mark firebase readiness when it completes and surface errors.
+      Firebase.initializeApp()
+          .then((_) {
+            if (mounted) {
+              setState(() {
+                _firebaseReady = true;
+              });
+            }
+          })
+          .catchError((e) {
+            if (mounted) {
+              setState(() {
+                _initError = e;
+              });
+            }
+          });
     } catch (e) {
       _initError = e;
     } finally {
@@ -132,21 +157,32 @@ class _MyAppState extends State<MyApp> {
             );
           }
 
-          // Firebase initialized — use authStateChanges to pick the landing page.
-          return StreamBuilder<User?>(
-            stream: FirebaseAuth.instance.authStateChanges(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasData && snapshot.data != null) {
-                return const HomeScreen();
-              }
-              return const LoginScreen();
-            },
-          );
+          // If Firebase finished initializing, use authStateChanges to pick
+          // the landing page. If Firebase is still initializing, fall back to
+          // a lightweight route (LoginScreen) so the UI is interactive fast;
+          // once Firebase is ready the widget will rebuild and attach auth
+          // state listeners.
+          if (_firebaseReady) {
+            return StreamBuilder<User?>(
+              stream: FirebaseAuth.instance.authStateChanges(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (snapshot.hasData && snapshot.data != null) {
+                  return const HomeScreen();
+                }
+                return const LoginScreen();
+              },
+            );
+          }
+
+          // Firebase not yet ready; show LoginScreen (limited) so the app
+          // becomes responsive immediately. When Firebase completes it will
+          // set _firebaseReady and rebuild.
+          return const LoginScreen();
         },
       ),
     );

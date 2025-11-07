@@ -1,4 +1,7 @@
+import 'dart:math';
 import 'package:flutter/services.dart'; // for PlatformException
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -8,6 +11,8 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 class NotificationService {
   NotificationService._private();
   static final NotificationService instance = NotificationService._private();
+
+  bool _initialized = false;
 
   // initialize plugin (call once in main)
   Future<void> initialize() async {
@@ -34,17 +39,29 @@ class NotificationService {
         // handle notification tapped logic here if needed
       },
     );
+    _initialized = true;
   }
 
   Future<void> scheduleWaterReminders({
     required int intervalHours,
     int days = 7,
   }) async {
+    if (!_initialized) {
+      try {
+        await initialize();
+      } catch (_) {
+        // ignore init errors and continue — schedule() will handle fallbacks
+      }
+    }
     // cancel previous water reminders (simple approach)
     await cancelWaterReminders();
 
     final now = tz.TZDateTime.now(tz.local);
-    final totalHours = days * 24;
+    // To avoid scheduling a very large number of notifications during
+    // startup, only schedule the next 24 hours worth of reminders here.
+    // The app may schedule the remaining reminders later in a background
+    // task if needed.
+    final totalHours = min(24, days * 24);
     final totalReminders = (totalHours / intervalHours).ceil();
 
     for (int i = 0; i < totalReminders; i++) {
@@ -70,11 +87,48 @@ class NotificationService {
         // androidAllowWhileIdle to maintain compatibility with older versions.
         // The analyzer may flag androidAllowWhileIdle as deprecated in newer
         // plugin versions; keeping both here is a safe compromise.
-        // ignore: deprecated_member_use
-        androidAllowWhileIdle: true,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
+    }
+
+    // Schedule remaining reminders (if days > 1) in the background to
+    // avoid performing many plugin calls synchronously during startup.
+    final maxImmediate = totalReminders;
+    final overallReminders = (days * 24 / intervalHours).ceil();
+    if (overallReminders > maxImmediate) {
+      Future(() async {
+        for (int i = maxImmediate; i < overallReminders; i++) {
+          try {
+            final scheduled = now.add(Duration(hours: i * intervalHours));
+            final id = 5000 + i;
+            await Future.delayed(const Duration(milliseconds: 60));
+            await flutterLocalNotificationsPlugin.zonedSchedule(
+              id,
+              '💧 Time to drink water!',
+              'Stay hydrated — take a sip now.',
+              tz.TZDateTime.from(scheduled, tz.local),
+              NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'water_channel_id',
+                  'Water Reminders',
+                  channelDescription: 'Reminds user to drink water',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                  playSound: true,
+                ),
+                iOS: DarwinNotificationDetails(),
+              ),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+            );
+          } catch (e) {
+            debugPrint('Background schedule failed for reminder $i: $e');
+          }
+        }
+      });
     }
   }
 
@@ -92,6 +146,13 @@ class NotificationService {
     required String body,
     required DateTime scheduledDateTime,
   }) async {
+    if (!_initialized) {
+      try {
+        await initialize();
+      } catch (_) {
+        // ignore
+      }
+    }
     final tz.TZDateTime scheduled = tz.TZDateTime.from(
       scheduledDateTime,
       tz.local,
@@ -115,16 +176,31 @@ class NotificationService {
           ),
           iOS: DarwinNotificationDetails(),
         ),
-        // ignore: deprecated_member_use
-        androidAllowWhileIdle: true,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
+      // If we reached here, scheduling with exact alarms succeeded — record
+      // that exact alarms are permitted so the UI need not show a warning.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('exact_alarms_permitted', true);
+      } catch (_) {
+        // ignore
+      }
+      return;
     } on PlatformException catch (e) {
       // Handle the "exact_alarms_not_permitted" error gracefully and retry with inexact scheduling
       if (e.code == 'exact_alarms_not_permitted' ||
           (e.message?.toLowerCase().contains('exact alarm') ?? false)) {
-        // Fallback option 1: schedule without allowWhileIdle (may be inexact)
+        // Persist that exact alarms are not permitted so the UI can inform the user
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('exact_alarms_permitted', false);
+        } catch (_) {
+          // ignore
+        }
+        // Fallback option 1: schedule without exact allowance (may be inexact)
         try {
           await flutterLocalNotificationsPlugin.zonedSchedule(
             id,
@@ -143,13 +219,13 @@ class NotificationService {
               iOS: DarwinNotificationDetails(),
             ),
             // Do not request exact alarms; let OS schedule it inexactly
-            androidAllowWhileIdle: false,
+            androidScheduleMode: AndroidScheduleMode.inexact,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
           );
         } catch (_) {
-          // Final fallback: schedule a simple not-exact notification (uses schedule API)
-          await flutterLocalNotificationsPlugin.schedule(
+          // Final fallback: use zonedSchedule with an inexact schedule mode
+          await flutterLocalNotificationsPlugin.zonedSchedule(
             id,
             title,
             body,
@@ -162,7 +238,9 @@ class NotificationService {
               ),
               iOS: DarwinNotificationDetails(),
             ),
-            androidAllowWhileIdle: false,
+            androidScheduleMode: AndroidScheduleMode.inexact,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
           );
         }
       } else {

@@ -33,11 +33,19 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _waterRemindersEnabled = false;
   int _waterIntervalHours = 2;
   bool _smartRemindersEnabled = false;
+  bool _exactAlarmsPermitted = true;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadWaterPrefs();
+    // Delay heavy or I/O work until after first frame to avoid blocking
+    // the UI during app startup. didChangeDependencies can be called
+    // multiple times, so ensure we schedule the one-time post-frame work.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadWaterPrefs();
+      // load exact-alarm permission state used to show a helpful banner
+      _loadExactAlarmPref();
+    });
   }
 
   Future<void> _loadWaterPrefs() async {
@@ -50,16 +58,37 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _waterIntervalHours = hours;
       _smartRemindersEnabled = smartEnabled;
     });
+    // If reminders are enabled, schedule them in the background so we
+    // don't block UI on first frame. Any errors are logged by the
+    // service — we purposely do not await here.
     if (_waterRemindersEnabled) {
-      await NotificationService.instance.scheduleWaterReminders(
-        intervalHours: _waterIntervalHours,
-        days: 7,
-      );
+      NotificationService.instance
+          .scheduleWaterReminders(intervalHours: _waterIntervalHours, days: 7)
+          .catchError(
+            (e) => debugPrint('Failed scheduling water reminders: $e'),
+          );
     }
 
-    // initialize smart reminder service if enabled
+    // Initialize smart reminder service if enabled, but don't await here to
+    // avoid blocking startup. The service will start and listen when ready.
     if (_smartRemindersEnabled) {
-      await SmartWaterReminder.instance.init();
+      SmartWaterReminder.instance.init().catchError(
+        (e) => debugPrint('SmartWaterReminder init failed: $e'),
+      );
+    }
+  }
+
+  Future<void> _loadExactAlarmPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool exactOk = prefs.getBool('exact_alarms_permitted') ?? true;
+      if (mounted) {
+        setState(() {
+          _exactAlarmsPermitted = exactOk;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load exact alarm pref: $e');
     }
   }
 
@@ -129,7 +158,11 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initStepCounter();
+    // Defer pedometer / permission / shared_preferences work until after
+    // the first frame so the app can render quickly.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initStepCounter();
+    });
   }
 
   @override
@@ -298,6 +331,30 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               value: _smartRemindersEnabled,
               onChanged: (val) async => await _setSmartRemindersEnabled(val),
             ),
+
+            // Show a banner if exact alarms are not permitted so users know why
+            // reminders might be inexact. Offer a button to open app settings.
+            if (!_exactAlarmsPermitted)
+              Card(
+                color: Colors.orange.shade50,
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.error_outline,
+                    color: Colors.orange,
+                  ),
+                  title: const Text('Precise alarms not permitted'),
+                  subtitle: const Text(
+                    'Your device blocked exact alarms. Open settings to enable precise reminders.',
+                  ),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      await openAppSettings();
+                    },
+                    child: const Text('Open Settings'),
+                  ),
+                ),
+              ),
 
             if (_waterRemindersEnabled)
               ExpansionTile(
