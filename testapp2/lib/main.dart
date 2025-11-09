@@ -1,12 +1,9 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'screens/login_page.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'screens/welcome_page.dart';
 import 'screens/home_page.dart';
 import 'services/auth_service.dart';
-
-// NOTE: You must add your platform Firebase configuration files to run Firebase
-// (e.g. android/google-services.json, ios/GoogleService-Info.plist). See
-// https://firebase.google.com/docs/flutter/setup for setup instructions.
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,30 +17,26 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Health Care App',
+      debugShowCheckedModeBanner: false,
+      title: 'Dream Login',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4285F4)),
+        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
       ),
-      home: const AuthGate(),
+      home: AuthGate(),
     );
   }
 }
 
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
-
   @override
   State<AuthGate> createState() => _AuthGateState();
 }
 
 class _AuthGateState extends State<AuthGate> {
   final AuthService _auth = AuthService();
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +51,7 @@ class _AuthGateState extends State<AuthGate> {
         if (snapshot.hasData) {
           return HomePage();
         }
-        return const LoginPage();
+        return const WelcomePage();
       },
     );
   }
