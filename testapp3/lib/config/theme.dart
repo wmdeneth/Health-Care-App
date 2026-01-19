@@ -39,11 +39,7 @@ class AppTheme {
           color: Colors.white,
         ),
       ),
-      cardTheme: CardTheme(
-        color: cardBackground,
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+
       textTheme: GoogleFonts.interTextTheme(
         Theme.of(
           context,
