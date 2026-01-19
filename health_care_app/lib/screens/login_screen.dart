@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
+// Biometric feature removed — fingerprint/face login disabled
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,6 +18,11 @@ class LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   bool loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+  }
+
   void login() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -27,15 +33,15 @@ class LoginScreenState extends State<LoginScreen> {
           email: emailController.text.trim(),
           password: passwordController.text.trim(),
         );
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Login successful')));
-        }
+        // Login successful. No biometric/persistent unlock behavior present.
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Login successful')));
       } on FirebaseAuthException catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -268,6 +274,7 @@ class LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(color: Colors.teal),
                         ),
                       ),
+                      // Biometric quick access removed.
                     ],
                   ),
                 ),

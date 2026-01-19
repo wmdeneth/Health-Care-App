@@ -187,4 +187,7 @@ class _MyAppState extends State<MyApp> {
       ),
     );
   }
+
+  // Biometric unlock removed — landing is determined solely by Firebase
+  // auth state (if signed in -> HomeScreen, otherwise LoginScreen).
 }

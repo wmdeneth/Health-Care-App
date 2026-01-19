@@ -315,6 +315,9 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   secondary: const Icon(Icons.smart_toy, color: Colors.purple),
                 ),
               ),
+              const SizedBox(height: 12),
+
+              // Biometric quick access removed from settings
               const SizedBox(height: 20),
 
               // Exact Alarm Banner (if needed)

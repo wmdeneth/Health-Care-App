@@ -1,3 +1,4 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "cmake.sourceDirectory": "D:/programme/flutterprojects/health_care_app/build/windows/x64/extracted/firebase_cpp_sdk_windows"
 }
