@@ -148,13 +148,6 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(widget.title),
         actions: [
           IconButton(
-            icon: const Icon(Icons.science_outlined),
-            tooltip: 'Water Notification Tests',
-            onPressed: () {
-              Navigator.of(context).pushNamed('/water-test');
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.directions_walk),
             tooltip: 'Steps',
             onPressed: () {

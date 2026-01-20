@@ -9,7 +9,6 @@ class Routes {
   static const String profile = '/profile';
   static const String notifications = '/notifications';
   static const String steps = '/steps';
-  static const String waterTest = '/water-test';
 
   // Splash
   static const String splash = '/';

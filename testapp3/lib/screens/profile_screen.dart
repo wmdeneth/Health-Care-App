@@ -7,7 +7,8 @@ import '../services/user_profile_service.dart';
 import '../services/notification_service.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool showAppBar;
+  const ProfileScreen({super.key, this.showAppBar = true});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -17,8 +18,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nicknameController = TextEditingController();
   final _heightController = TextEditingController();
+  String _heightUnit = 'cm'; // 'cm', 'm', 'in'
   final _weightController = TextEditingController();
+  final _ageController = TextEditingController(); // New
   final _photoUrlController = TextEditingController();
+  String? _selectedSex; // New
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -115,11 +119,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _handleLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Logout'),
+            content: const Text('Are you sure you want to logout?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Logout'),
+              ),
+            ],
+          ),
+    );
+
+    if (shouldLogout == true && mounted) {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        // Use pushReplacement or pushNamedAndRemoveUntil to clear stack
+        Navigator.of(context).pushReplacementNamed('/login');
+      }
+    }
+  }
+
   Future<void> _loadProfile() async {
     final profile = await UserProfileService.instance.loadProfile();
     _nicknameController.text = profile.nickname;
-    _heightController.text = profile.heightCm?.toString() ?? '';
+
+    // Set default unit and converted value
+    if (profile.heightCm != null) {
+      // Keep 'cm' as default load unit, but user can switch.
+      // Or calculate distinct logic. For now default to 'cm'
+      _heightController.text = profile.heightCm!.toStringAsFixed(1);
+    } else {
+      _heightController.text = '';
+    }
+
     _weightController.text = profile.weightKg?.toString() ?? '';
+    _ageController.text = profile.age?.toString() ?? '';
+    _selectedSex = profile.sex;
     _photoUrlController.text = profile.photoUrl ?? '';
     if (!mounted) return;
     setState(() {
@@ -141,35 +185,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _isSaving = true;
     });
 
-    final profile = UserProfile(
-      nickname: _nicknameController.text.trim(),
-      heightCm:
-          _heightController.text.trim().isEmpty
-              ? null
-              : double.tryParse(_heightController.text.trim()),
-      weightKg:
-          _weightController.text.trim().isEmpty
-              ? null
-              : double.tryParse(_weightController.text.trim()),
-      photoUrl:
-          _photoUrlController.text.trim().isEmpty
-              ? null
-              : _photoUrlController.text.trim(),
-    );
+    try {
+      double? heightCm;
+      if (_heightController.text.trim().isNotEmpty) {
+        final val = double.tryParse(_heightController.text.trim());
+        if (val != null) {
+          heightCm = _convertHeightToCm(val, _heightUnit);
+        }
+      }
 
-    await UserProfileService.instance.saveProfile(profile);
+      final profile = UserProfile(
+        nickname: _nicknameController.text.trim(),
+        heightCm: heightCm,
+        weightKg:
+            _weightController.text.trim().isEmpty
+                ? null
+                : double.tryParse(_weightController.text.trim()),
+        age:
+            _ageController.text.trim().isEmpty
+                ? null
+                : int.tryParse(_ageController.text.trim()), // New
+        sex: _selectedSex, // New
+        photoUrl:
+            _photoUrlController.text.trim().isEmpty
+                ? null
+                : _photoUrlController.text.trim(),
+      );
 
-    if (!mounted) return;
-    setState(() {
-      _isSaving = false;
-      _currentProfile = profile;
-      _hasProfile = true;
-      _isEditing = false;
-    });
+      await UserProfileService.instance
+          .saveProfile(profile)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw 'Connection timed out. Check your internet.';
+            },
+          );
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Profile saved')));
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _currentProfile = profile;
+        _hasProfile = true;
+        _isEditing = false;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile saved')));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error saving profile: $e')));
+      }
+    }
   }
 
   @override
@@ -177,6 +249,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nicknameController.dispose();
     _heightController.dispose();
     _weightController.dispose();
+    _ageController.dispose(); // New
     _photoUrlController.dispose();
     super.dispose();
   }
@@ -220,7 +293,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Account')),
+      appBar: widget.showAppBar ? AppBar(title: const Text('Account')) : null,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -269,14 +342,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       },
                                     ),
                                     const SizedBox(height: 16),
-                                    TextFormField(
-                                      controller: _heightController,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                            decimal: true,
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextFormField(
+                                            controller: _heightController,
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            decoration: InputDecoration(
+                                              labelText:
+                                                  'Height ($_heightUnit)',
+                                            ),
                                           ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        DropdownButton<String>(
+                                          value: _heightUnit,
+                                          items:
+                                              ['cm', 'm', 'in']
+                                                  .map(
+                                                    (unit) => DropdownMenuItem(
+                                                      value: unit,
+                                                      child: Text(unit),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                          onChanged: (newUnit) {
+                                            if (newUnit == null ||
+                                                newUnit == _heightUnit)
+                                              return;
+                                            _changeHeightUnit(newUnit);
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    TextFormField(
+                                      controller: _ageController,
+                                      keyboardType: TextInputType.number,
                                       decoration: const InputDecoration(
-                                        labelText: 'Height (cm)',
+                                        labelText: 'Age',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    DropdownButtonFormField<String>(
+                                      value: _selectedSex,
+                                      items:
+                                          ['Male', 'Female', 'Other']
+                                              .map(
+                                                (label) => DropdownMenuItem(
+                                                  value: label,
+                                                  child: Text(label),
+                                                ),
+                                              )
+                                              .toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _selectedSex = value;
+                                        });
+                                      },
+                                      decoration: const InputDecoration(
+                                        labelText: 'Sex',
                                       ),
                                     ),
                                     const SizedBox(height: 16),
@@ -339,6 +467,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       padding: const EdgeInsets.only(top: 8.0),
                                       child: Text(
                                         'Height: ${_currentProfile.heightCm!.toStringAsFixed(1)} cm',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodyLarge,
+                                      ),
+                                    ),
+                                  if (_currentProfile.age != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Text(
+                                        'Age: ${_currentProfile.age}',
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodyLarge,
+                                      ),
+                                    ),
+                                  if (_currentProfile.sex != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Text(
+                                        'Sex: ${_currentProfile.sex}',
                                         style:
                                             Theme.of(
                                               context,
@@ -426,6 +576,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       child: const Text('Edit details'),
                                     ),
                                   ),
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: _handleLogout,
+                                      icon: const Icon(
+                                        Icons.logout,
+                                        color: Colors.redAccent,
+                                      ),
+                                      label: const Text(
+                                        'Logout',
+                                        style: TextStyle(
+                                          color: Colors.redAccent,
+                                        ),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        side: const BorderSide(
+                                          color: Colors.redAccent,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                     ),
@@ -433,5 +605,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  void _changeHeightUnit(String newUnit) {
+    if (_heightController.text.isEmpty) {
+      setState(() => _heightUnit = newUnit);
+      return;
+    }
+
+    double? currentVal = double.tryParse(_heightController.text);
+    if (currentVal == null) {
+      setState(() => _heightUnit = newUnit);
+      return;
+    }
+
+    // Convert current value back to CM first
+    double cmVal = _convertHeightToCm(currentVal, _heightUnit);
+
+    // Convert CM to new unit
+    double newVal = _convertCmToUnit(cmVal, newUnit);
+
+    setState(() {
+      _heightUnit = newUnit;
+      _heightController.text = newVal.toStringAsFixed(2);
+    });
+  }
+
+  double _convertHeightToCm(double val, String unit) {
+    switch (unit) {
+      case 'm':
+        return val * 100;
+      case 'in':
+        return val * 2.54;
+      default:
+        return val;
+    }
+  }
+
+  double _convertCmToUnit(double cm, String unit) {
+    switch (unit) {
+      case 'm':
+        return cm / 100;
+      case 'in':
+        return cm / 2.54;
+      default:
+        return cm;
+    }
   }
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/notification_history.dart';
-import '../services/notification_history_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/admin_notification.dart';
+import '../services/admin_notification_service.dart';
+import '../config/theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -10,311 +12,223 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final NotificationHistoryService _historyService =
-      NotificationHistoryService();
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  final AdminNotificationService _adminService = AdminNotificationService();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: const Text('News & Updates'),
         elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [Tab(text: 'History'), Tab(text: 'Scheduled')],
+        backgroundColor: AppTheme.secondaryBackground,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() {}),
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0B0E11), Color(0xFF111827)],
+          ),
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildHistoryTab(), _buildScheduledTab()],
-      ),
-    );
-  }
+        child: StreamBuilder<QuerySnapshot>(
+          stream:
+              FirebaseFirestore.instance
+                  .collection('adminNotifications')
+                  .snapshots(),
+          builder: (context, snapshot) {
+            // DEBUG INFO OVERLAY (Subtle)
+            String debugStatus = "Checking...";
+            if (snapshot.hasData) {
+              final isCache = snapshot.data!.metadata.isFromCache;
+              final count = snapshot.data!.docs.length;
+              debugStatus =
+                  "Status: ${isCache ? 'OFFLINE (Cache)' : 'ONLINE'} | Docs: $count";
+            } else if (snapshot.hasError) {
+              debugStatus = "Error: ${snapshot.error}";
+            }
 
-  Widget _buildHistoryTab() {
-    return StreamBuilder<List<NotificationHistory>>(
-      stream: _historyService.getPastNotificationsStream(days: 30),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+            if (snapshot.hasError) {
+              return _buildErrorState(snapshot.error.toString());
+            }
 
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        final notifications = snapshot.data ?? [];
+            final docs = snapshot.data?.docs ?? [];
 
-        if (notifications.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.notifications_off,
-                  size: 64,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No notification history',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: notifications.length,
-          itemBuilder: (context, index) {
-            final notification = notifications[index];
-            return _buildNotificationHistoryCard(notification);
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildScheduledTab() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _historyService.getFutureNotifications(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-
-        final notifications = snapshot.data ?? [];
-
-        if (notifications.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.schedule, size: 64, color: Colors.grey.shade600),
-                const SizedBox(height: 16),
-                Text(
-                  'No scheduled notifications',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: notifications.length,
-          itemBuilder: (context, index) {
-            final notification = notifications[index];
-            return _buildScheduledCard(notification);
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildNotificationHistoryCard(NotificationHistory notification) {
-    final DateFormat timeFormat = DateFormat('HH:mm');
-    final DateFormat dateFormat = DateFormat('MMM d, yyyy');
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        notification.title,
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${timeFormat.format(notification.notificationTime)} - ${dateFormat.format(notification.notificationTime)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade400,
+            if (docs.isEmpty) {
+              return Stack(
+                children: [
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.mark_email_read_outlined,
+                          size: 50,
+                          color: Colors.white12,
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                Chip(
-                  label: Text(
-                    notification.drank ? '✓ Drank' : '✗ Not Drank',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No updates found in database.',
+                          style: TextStyle(color: Colors.white38),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => setState(() {}),
+                          child: const Text('Refresh'),
+                        ),
+                      ],
                     ),
                   ),
-                  backgroundColor:
-                      notification.drank
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
-                  labelStyle: const TextStyle(color: Colors.white),
+                  Positioned(
+                    bottom: 20,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Text(
+                        debugStatus,
+                        style: const TextStyle(
+                          color: Colors.white24,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            // Map and sort in memory
+            final notifications =
+                docs
+                    .map((doc) => AdminNotification.fromFirestore(doc))
+                    .toList();
+            notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    debugStatus,
+                    style: const TextStyle(color: Colors.white24, fontSize: 10),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: notifications.length,
+                    itemBuilder: (context, index) {
+                      final n = notifications[index];
+                      return _buildAdminCard(n);
+                    },
+                  ),
                 ),
               ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.wifi_off_rounded, size: 60, color: Colors.white24),
+            const SizedBox(height: 16),
+            const Text(
+              'Connection Issues',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
-              notification.message,
-              style: Theme.of(context).textTheme.bodyMedium,
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white38, fontSize: 11),
             ),
-            if (notification.drank && notification.drankTime != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 8,
-                  horizontal: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade900.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade700),
-                ),
-                child: Text(
-                  'Drank at ${timeFormat.format(notification.drankTime!)}',
-                  style: TextStyle(
-                    color: Colors.green.shade400,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ] else if (!notification.drank) ...[
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  await _historyService.markAsDrank(notification.id);
-                  setState(() {});
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('Mark as Drank'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                ),
-              ),
-            ],
-            if (notification.incrementMl > 0) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 6,
-                  horizontal: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade900.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  '💧 ${notification.incrementMl}ml',
-                  style: TextStyle(
-                    color: Colors.blue.shade300,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => setState(() {}),
+              child: const Text('Retry'),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildScheduledCard(Map<String, dynamic> notification) {
-    final DateFormat timeFormat = DateFormat('HH:mm');
-    final DateFormat dateFormat = DateFormat('MMM d, yyyy');
-
-    DateTime scheduledTime = DateTime.now();
-    try {
-      scheduledTime = DateTime.parse(
-        notification['scheduledTime'] ?? DateTime.now().toIso8601String(),
-      );
-    } catch (_) {}
-
+  Widget _buildAdminCard(AdminNotification n) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
+      color: Colors.white.withValues(alpha: 0.05),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.info_outline,
+                    color: AppTheme.primaryColor,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        notification['title'] ?? 'Water Reminder',
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        n.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
-                        '${timeFormat.format(scheduledTime)} - ${dateFormat.format(scheduledTime)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade400,
+                        DateFormat('MMM d, h:mm a').format(n.createdAt),
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 12,
                         ),
                       ),
                     ],
                   ),
                 ),
-                Icon(Icons.access_time, color: Colors.blue.shade400, size: 28),
               ],
             ),
             const SizedBox(height: 12),
             Text(
-              notification['message'] ?? 'Drink water to stay hydrated',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade900.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                '⏱️ Upcoming',
-                style: TextStyle(
-                  color: Colors.orange.shade300,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              n.message,
+              style: const TextStyle(color: Colors.white70, height: 1.4),
             ),
           ],
         ),

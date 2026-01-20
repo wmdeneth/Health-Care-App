@@ -175,4 +175,38 @@ class NotificationHistoryService {
       return Stream.empty();
     }
   }
+
+  // Stream of future (scheduled) notifications
+  Stream<List<NotificationHistory>> getFutureNotificationsStream() {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return Stream.empty();
+
+      return _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('scheduled_notifications')
+          .orderBy('scheduledTime', descending: false)
+          .snapshots()
+          .map((snapshot) {
+            return snapshot.docs.map((doc) {
+              final data = doc.data();
+              return NotificationHistory(
+                id: data['id']?.toString() ?? '',
+                notificationTime:
+                    data['scheduledTime'] != null
+                        ? DateTime.parse(data['scheduledTime'])
+                        : DateTime.now(),
+                title: data['title'] ?? 'Upcoming water',
+                message: data['message'] ?? '',
+                drank: false,
+                incrementMl: data['incrementMl'] ?? 250,
+              );
+            }).toList();
+          });
+    } catch (e) {
+      debugPrint('Error getting future notifications stream: $e');
+      return Stream.empty();
+    }
+  }
 }

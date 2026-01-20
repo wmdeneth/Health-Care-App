@@ -7,13 +7,12 @@ import 'config/app_config.dart';
 import 'config/routes.dart';
 import 'config/theme.dart';
 import 'presentation/bloc/index.dart';
-import 'presentation/pages/home_page.dart';
+import 'presentation/pages/main_page.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/steps_screen.dart';
-import 'screens/water_notification_test_screen.dart';
 import 'services/notification_service.dart';
 import 'services/step_counter_service.dart';
 
@@ -51,11 +50,10 @@ class MyApp extends StatelessWidget {
         routes: {
           Routes.login: (context) => const LoginScreen(),
           Routes.register: (context) => const RegisterScreen(),
-          Routes.home: (context) => const HomePage(),
+          Routes.home: (context) => const MainPage(),
           Routes.profile: (context) => const ProfileScreen(),
           Routes.notifications: (context) => const NotificationsScreen(),
           Routes.steps: (context) => const StepsScreen(),
-          Routes.waterTest: (context) => const WaterNotificationTestScreen(),
         },
       ),
     );

@@ -1,3 +1,5 @@
+import '../../models/water_log.dart';
+
 /// Home screen events
 abstract class HomeEvent {
   const HomeEvent();
@@ -27,4 +29,9 @@ class RequestPermissionEvent extends HomeEvent {
 
 class RefreshDataEvent extends HomeEvent {
   const RefreshDataEvent();
+}
+
+class WaterHistoryUpdatedEvent extends HomeEvent {
+  final List<WaterLog> history;
+  const WaterHistoryUpdatedEvent(this.history);
 }

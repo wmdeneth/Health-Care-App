@@ -1,4 +1,6 @@
-import 'package:testapp3/models/meal_tip.dart';
+import '../../models/meal_tip.dart';
+import '../../models/water_log.dart';
+import '../../models/step_data.dart';
 
 /// Home screen states
 abstract class HomeState {
@@ -21,6 +23,10 @@ class HomeLoaded extends HomeState {
   final bool hasActivityPermission;
   final String? waterReminderHint;
   final MealTip? dailyTip;
+  final double? bmi;
+  final String? bmiStatus;
+  final List<WaterLog> waterHistory;
+  final List<StepData> stepHistory;
 
   const HomeLoaded({
     required this.currentWaterMl,
@@ -30,6 +36,10 @@ class HomeLoaded extends HomeState {
     required this.hasActivityPermission,
     this.waterReminderHint,
     this.dailyTip,
+    this.bmi,
+    this.bmiStatus,
+    this.waterHistory = const [],
+    this.stepHistory = const [],
   });
 
   HomeLoaded copyWith({
@@ -40,6 +50,10 @@ class HomeLoaded extends HomeState {
     bool? hasActivityPermission,
     String? waterReminderHint,
     MealTip? dailyTip,
+    double? bmi,
+    String? bmiStatus,
+    List<WaterLog>? waterHistory,
+    List<StepData>? stepHistory,
   }) {
     return HomeLoaded(
       currentWaterMl: currentWaterMl ?? this.currentWaterMl,
@@ -50,6 +64,10 @@ class HomeLoaded extends HomeState {
           hasActivityPermission ?? this.hasActivityPermission,
       waterReminderHint: waterReminderHint ?? this.waterReminderHint,
       dailyTip: dailyTip ?? this.dailyTip,
+      bmi: bmi ?? this.bmi,
+      bmiStatus: bmiStatus ?? this.bmiStatus,
+      waterHistory: waterHistory ?? this.waterHistory,
+      stepHistory: stepHistory ?? this.stepHistory,
     );
   }
 }

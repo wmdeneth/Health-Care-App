@@ -115,7 +115,8 @@ class WaterNotificationTest {
             importance: Importance.max,
             priority: Priority.high,
             actions: <AndroidNotificationAction>[
-              AndroidNotificationAction('drink_250ml', 'I Drank 250ml'),
+              AndroidNotificationAction('drink_250ml', 'Accept / Drink 250ml'),
+              AndroidNotificationAction('reject_water', 'Reject / Skip'),
             ],
           ),
         ),

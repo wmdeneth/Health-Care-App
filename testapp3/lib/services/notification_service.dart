@@ -4,6 +4,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'water_history_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -34,6 +35,51 @@ Future<void> initNotificationService() async {
 
   // Request SCHEDULE_EXACT_ALARM permission for scheduling at specific times
   await androidImplementation?.requestExactAlarmsPermission();
+
+  // Start listening for admin broadcasts from web panel
+  listenToAdminNotifications();
+}
+
+// --- Admin Notification Listener ---
+void listenToAdminNotifications() {
+  final now = DateTime.now();
+  FirebaseFirestore.instance
+      .collection('adminNotifications')
+      .where('createdAt', isGreaterThan: Timestamp.fromDate(now))
+      .snapshots()
+      .listen((snapshot) {
+        for (var change in snapshot.docChanges) {
+          if (change.type == DocumentChangeType.added) {
+            final data = change.doc.data();
+            if (data != null) {
+              _showAdminBroadcast(
+                data['title'] ?? 'New Update',
+                data['message'] ?? '',
+              );
+            }
+          }
+        }
+      });
+}
+
+Future<void> _showAdminBroadcast(String title, String body) async {
+  const AndroidNotificationDetails androidPlatformChannelSpecifics =
+      AndroidNotificationDetails(
+        'admin_updates',
+        'Admin Updates',
+        channelDescription: 'Notifications sent by administrators',
+        importance: Importance.max,
+        priority: Priority.high,
+      );
+  const NotificationDetails platformChannelSpecifics = NotificationDetails(
+    android: androidPlatformChannelSpecifics,
+  );
+  await flutterLocalNotificationsPlugin.show(
+    DateTime.now().millisecond, // Unique ID
+    title,
+    body,
+    platformChannelSpecifics,
+  );
 }
 
 Future<void> scheduleDailyHydrationReminders() async {
@@ -63,14 +109,11 @@ Future<void> scheduleDailyHydrationReminders() async {
     throw Exception('Failed to clear scheduled notifications: $e');
   }
 
-  // Fixed notification window between 08:00 and 22:00.
-  const int startHour = 8;
-  const int endHour = 22;
+  // Fetch user settings from Firestore
+  int startHour = 8;
+  int endHour = 22;
+  double dailyGoalMl = 2000;
 
-  // Derive goal from user's profile:
-  //   dailyWaterGoal(ml) = weightKg * 35
-  // and
-  double dailyGoalMl = 2000; // fallback
   try {
     final doc =
         await FirebaseFirestore.instance
@@ -78,47 +121,73 @@ Future<void> scheduleDailyHydrationReminders() async {
             .doc(user.uid)
             .get();
     final data = doc.data() ?? <String, dynamic>{};
-    final weightKg = (data['weightKg'] as num?)?.toDouble();
-    final heightCm = (data['heightCm'] as num?)?.toDouble();
 
-    if (weightKg != null && weightKg > 0) {
-      double baseGoal = weightKg * 35.0;
-
-      // Optional BMI-based adjustment: keep the logic simple and conservative.
-      if (heightCm != null && heightCm > 0) {
-        final hMeters = heightCm / 100.0;
-        final bmi = weightKg / (hMeters * hMeters);
-
-        if (bmi < 18.5) {
-          // Underweight – slightly reduce target to avoid over-hydration.
-          baseGoal *= 0.9;
-        } else if (bmi > 30) {
-          // Obese – slightly increase target within a safe margin.
-          baseGoal *= 1.1;
-        }
-      }
-
-      dailyGoalMl = baseGoal.clamp(1000.0, 5000.0);
+    bool waterEnabled = data['waterEnabled'] as bool? ?? false;
+    if (!waterEnabled) {
+      debugPrint('Water reminders are disabled for this user.');
+      return;
     }
 
-    // Persist the calculated goal on the user document so the Admin
-    // dashboard can read it directly.
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'dailyWaterGoal': dailyGoalMl.round(),
-    }, SetOptions(merge: true));
-  } catch (_) {
-    // If user data cannot be loaded, keep fallback goal.
+    // Load Admin/User preferences
+    if (data['waterStartHour'] != null) {
+      startHour = (data['waterStartHour'] as num).toInt();
+    }
+    if (data['waterEndHour'] != null) {
+      endHour = (data['waterEndHour'] as num).toInt();
+    }
+
+    // Check if goal is already set (Admin override or previously calculated)
+    if (data['dailyWaterGoal'] != null && (data['dailyWaterGoal'] as num) > 0) {
+      dailyGoalMl = (data['dailyWaterGoal'] as num).toDouble();
+    } else {
+      // Calculate based on weight if not set
+      final weightKg = (data['weightKg'] as num?)?.toDouble();
+      final heightCm = (data['heightCm'] as num?)?.toDouble();
+
+      if (weightKg != null && weightKg > 0) {
+        double baseGoal = weightKg * 35.0;
+
+        // Optional BMI-based adjustment
+        if (heightCm != null && heightCm > 0) {
+          final hMeters = heightCm / 100.0;
+          final bmi = weightKg / (hMeters * hMeters);
+
+          if (bmi < 18.5) {
+            baseGoal *= 0.9;
+          } else if (bmi > 30) {
+            baseGoal *= 1.1;
+          }
+        }
+
+        dailyGoalMl = baseGoal.clamp(1000.0, 5000.0);
+
+        // Persist the calculated goal
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'dailyWaterGoal': dailyGoalMl.round(),
+        }, SetOptions(merge: true));
+      }
+    }
+  } catch (e) {
+    debugPrint("Error loading user settings for water schedule: $e");
+    // Continue with defaults
   }
 
   // Divide the goal into 250ml increments and schedule evenly
-  // between 08:00 and 22:00.
   const int incrementMl = 250;
   final int totalNotifications = (dailyGoalMl / incrementMl).ceil().clamp(
     1,
     40,
   ); // sane upper bound
 
-  final int totalWindowMinutes = (endHour - startHour) * 60; // 14h = 840min
+  final int totalWindowMinutes = (endHour - startHour) * 60;
+
+  // If window is invalid (e.g. start > end), default to 8-22
+  if (totalWindowMinutes <= 0) {
+    debugPrint("Invalid time window ($startHour-$endHour), using default.");
+    await scheduleWaterReminder(0, 8, 0); // Scheduling just one as fallback
+    return;
+  }
+
   final double stepMinutes = totalWindowMinutes / totalNotifications.toDouble();
 
   int id = 0;
@@ -152,7 +221,8 @@ Future<void> scheduleWaterReminder(int id, int hour, int minute) async {
           importance: Importance.max,
           priority: Priority.high,
           actions: <AndroidNotificationAction>[
-            AndroidNotificationAction('drink_250ml', 'I Drank 250ml'),
+            AndroidNotificationAction('drink_250ml', 'Accept / Drink 250ml'),
+            AndroidNotificationAction('reject_water', 'Reject / Skip'),
           ],
         ),
       ),
@@ -197,6 +267,9 @@ void _onNotificationResponse(NotificationResponse response) {
   if (response.actionId == 'drink_250ml') {
     final notificationId = int.tryParse((response.id).toString()) ?? 0;
     _handleDrinkWaterAction(notificationId);
+  } else if (response.actionId == 'reject_water') {
+    // Just dismiss (default behavior) or log rejection if needed
+    debugPrint('User rejected water notification');
   }
 }
 
@@ -205,10 +278,8 @@ Future<void> _handleDrinkWaterAction(int notificationId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Atomically increment the currentIntake field by 250ml.
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'currentIntake': FieldValue.increment(250),
-    }, SetOptions(merge: true));
+    // Use WaterHistoryService to update both main doc and daily history
+    await WaterHistoryService.instance.addWater(250);
 
     // Mark notification as drank in history
     await FirebaseFirestore.instance
